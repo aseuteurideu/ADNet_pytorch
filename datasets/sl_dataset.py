@@ -29,11 +29,12 @@ class SLDataset(data.Dataset):
         bbox = self.train_db['bboxes'][index]
         action_label = np.array(self.train_db['labels'][index], dtype=np.float32)
         score_label = self.train_db['score_labels'][index]
+        vid_idx = self.train_db['vid_idx'][index]
 
         if self.transform is not None:
             im, bbox, action_label, score_label = self.transform(im, bbox, action_label, score_label)
 
-        return im, bbox, action_label, score_label
+        return im, bbox, action_label, score_label, vid_idx
 
     def __len__(self):
         return len(self.train_db['img_path'])
@@ -50,23 +51,40 @@ class SLDataset(data.Dataset):
         score_label = self.train_db['score_labels'][index]
         return action_label, score_label
 
-def initialize_pos_neg_dataset(train_videos, opts, transform=None):
+
+def initialize_pos_neg_dataset(train_videos, opts, transform=None, multidomain=True):
+    """
+    Return list of pos and list of neg dataset for each domain.
+    Args:
+        train_videos:
+        opts:
+        transform:
+        multidomain:
+    Returns:
+        datasets_pos: (list of SLDataset) List length: if multidomain, #videos (or domain). Else: 1
+        datasets_neg: (list of SLDataset) List length: if multidomain, #videos (or domain). Else: 1
+    """
     num_videos = len(train_videos['video_names'])
 
-    train_db_pos = {
-        'img_path': [],  # list of string
-        'bboxes': [],  # list of ndarray left top coordinate [left top width height]
-        'labels': [],  # list of ndarray #action elements. One hot vector
-        'score_labels': []  # list of scalar 0 (negative) or 1 (positive)
-    }
-    train_db_neg = {
-        'img_path': [],  # list of string
-        'bboxes': [],  # list of ndarray left top coordinate [left top width height]
-        'labels': [],  # list of ndarray #action elements. One hot vector
-        'score_labels': []  # list of scalar 0 (negative) or 1 (positive)
-    }
+    datasets_pos = []
+    datasets_neg = []
 
     for vid_idx in range(num_videos):
+        train_db_pos = {
+            'img_path': [],  # list of string
+            'bboxes': [],  # list of ndarray left top coordinate [left top width height]
+            'labels': [],  # list of ndarray #action elements. One hot vector
+            'score_labels': [],  # list of scalar 0 (negative) or 1 (positive)
+            'vid_idx': []  # list of int. Each video (or domain) index
+        }
+        train_db_neg = {
+            'img_path': [],  # list of string
+            'bboxes': [],  # list of ndarray left top coordinate [left top width height]
+            'labels': [],  # list of ndarray #action elements. One hot vector
+            'score_labels': [],  # list of scalar 0 (negative) or 1 (positive)
+            'vid_idx': []  # list of int. Each video (or domain) index
+        }
+
         print("generating dataset from video " + str(vid_idx + 1) + "/" + str(num_videos) +
               "(current total data (pos-neg): " + str(len(train_db_pos['labels'])) +
               "-" + str(len(train_db_neg['labels'])) + ")")
@@ -83,6 +101,7 @@ def initialize_pos_neg_dataset(train_videos, opts, transform=None):
             train_db_pos['bboxes'].extend(train_db_pos_[sample_idx]['bboxes'])
             train_db_pos['labels'].extend(train_db_pos_[sample_idx]['labels'])
             train_db_pos['score_labels'].extend(train_db_pos_[sample_idx]['score_labels'])
+            train_db_pos['vid_idx'].extend(np.repeat(vid_idx, len(train_db_pos_[sample_idx]['img_path'])))
 
         print("Finish generating positive dataset... (current total data: " + str(len(train_db_pos['labels'])) + ")")
 
@@ -92,10 +111,18 @@ def initialize_pos_neg_dataset(train_videos, opts, transform=None):
             train_db_neg['bboxes'].extend(train_db_neg_[sample_idx]['bboxes'])
             train_db_neg['labels'].extend(train_db_neg_[sample_idx]['labels'])
             train_db_neg['score_labels'].extend(train_db_neg_[sample_idx]['score_labels'])
+            train_db_neg['vid_idx'].extend(np.repeat(vid_idx, len(train_db_neg_[sample_idx]['img_path'])))
 
         print("Finish generating negative dataset... (current total data: " + str(len(train_db_neg['labels'])) + ")")
 
-    dataset_pos = SLDataset(train_db_pos, transform=transform)
-    dataset_neg = SLDataset(train_db_neg, transform=transform)
+        dataset_pos = SLDataset(train_db_pos, transform=transform)
+        dataset_neg = SLDataset(train_db_neg, transform=transform)
 
-    return dataset_pos, dataset_neg
+        if multidomain:
+            datasets_pos.append(dataset_pos)
+            datasets_neg.append(dataset_neg)
+        else:
+            datasets_pos.extend(dataset_pos)
+            datasets_neg.extend(dataset_neg)
+
+    return datasets_pos, datasets_neg

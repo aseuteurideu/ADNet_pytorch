@@ -13,7 +13,7 @@ from torch import nn
 import torch.utils.data as data
 import glob
 from datasets.online_adaptation_dataset import OnlineAdaptationDataset, OnlineAdaptationDatasetStorage
-from utils.augmentations import ADNet_Augmentation, ADNet_Augmentation_KeepAspectRatio
+from utils.augmentations import ADNet_Augmentation
 from utils.do_action import do_action
 import time
 from utils.display import display_result, draw_box
@@ -34,10 +34,7 @@ def adnet_test(net, vid_path, opts, args):
     else:
         torch.set_default_tensor_type('torch.FloatTensor')
 
-    if args.transform == 'keep_aspect_ratio':
-        transform = ADNet_Augmentation_KeepAspectRatio(opts)
-    else:  # elif args.transform == 'original'
-        transform = ADNet_Augmentation(opts)
+    transform = ADNet_Augmentation(opts)
 
     print('Testing sequences in ' + str(vid_path) + '...')
     t_sum = 0

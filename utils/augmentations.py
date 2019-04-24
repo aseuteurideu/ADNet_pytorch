@@ -78,68 +78,6 @@ class CropRegion_withContext(object):
 
         return im.astype(np.float32), box, action_label, conf_label
 
-# crop with context and multiplication, but keep the final square based on the lowest dimension
-# e.g. dimension with context is 5x7. Then add more context on the first dimension, so the final dimension become 7x7
-# add padding if the box is in the border and the edge is outside of the image
-class CropRegion_withContext_square(object):
-    def __init__(self, multiplication=None, border_padding="black"):
-        assert border_padding in ['replicate', 'black']
-        self.border_padding = border_padding
-
-        if multiplication is None:
-            multiplication = 1.4  # same with default CropRegion
-        assert multiplication >= 1, "multiplication should more than 1 so the object itself is not cropped"
-        self.multiplication = multiplication
-
-    def __call__(self, image, box, action_label=None, conf_label=None):
-        image = np.array(image)
-        box = np.array(box)
-        if box is not None:
-            center = box[0:2] + 0.5 * box[2:4]
-            wh = box[2:4] * self.multiplication
-            if wh[0] < wh[1]:
-                wh[0] = wh[1]
-            elif wh[1] < wh[0]:
-                wh[1] = wh[0]
-
-            box_lefttop = center - 0.5 * wh
-            box_rightbottom = center + 0.5 * wh
-            box_ = [  # box for cropping the image... not the box of object
-                max(0, box_lefttop[0]),
-                max(0, box_lefttop[1]),
-                min(box_rightbottom[0], image.shape[1]),
-                min(box_rightbottom[1], image.shape[0])
-            ]
-
-            im = image[int(box_[1]):int(box_[3]), int(box_[0]):int(box_[2]), :]
-
-            if box_lefttop[0] < 0:
-                left_border = 0 - box_lefttop[0]
-            else:
-                left_border = 0
-            if box_lefttop[1] < 0:
-                top_border = 0 - box_lefttop[1]
-            else:
-                top_border = 0
-            if box_rightbottom[0] > image.shape[1]:
-                right_border = box_rightbottom[0] - image.shape[1]
-            else:
-                right_border = 0
-            if box_rightbottom[1] > image.shape[0]:
-                bottom_border = box_rightbottom[1] - image.shape[0]
-            else:
-                bottom_border = 0
-
-            if self.border_padding == 'replicate':
-                im = cv2.copyMakeBorder(im, int(top_border), int(bottom_border), int(left_border), int(right_border), cv2.BORDER_REPLICATE)
-            else:  # elif self.border_padding == 'replicate':
-                im = cv2.copyMakeBorder(im, int(top_border), int(bottom_border), int(left_border), int(right_border), cv2.BORDER_CONSTANT, 0)
-
-        else:
-            im = image[:, :, :]
-
-        return im.astype(np.float32), box, action_label, conf_label
-
 
 class ResizeImage(object):
     def __init__(self, inputSize):
@@ -182,15 +120,3 @@ class ADNet_Augmentation(object):
     def __call__(self, img, box, action_label=None, conf_label=None):
         return self.augment(img, box, action_label, conf_label)
 
-
-class ADNet_Augmentation_KeepAspectRatio(object):
-    def __init__(self, opts, multiplication=None, border_padding="black"):
-        self.augment = Compose([
-            SubtractMeans(opts['means']),
-            CropRegion_withContext_square(multiplication, border_padding),
-            ResizeImage(opts['inputSize']),
-            ToTensor()
-        ])
-
-    def __call__(self, img, box, action_label=None, conf_label=None):
-        return self.augment(img, box, action_label, conf_label)

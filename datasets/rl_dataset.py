@@ -14,13 +14,13 @@ from utils.get_video_infos import get_video_infos
 
 import time
 from trainers.RL_tools import TrackingEnvironment
-from utils.augmentations import ADNet_Augmentation, ADNet_Augmentation_KeepAspectRatio
+from utils.augmentations import ADNet_Augmentation
 from utils.display import display_result, draw_box
 from torch.distributions import Categorical
 
 class RLDataset(data.Dataset):
 
-    def __init__(self, net, train_videos, opts, args):
+    def __init__(self, net, domain_specific_nets, train_videos, opts, args):
         self.env = None
 
         # these lists won't include the ground truth
@@ -31,8 +31,9 @@ class RLDataset(data.Dataset):
         self.patch_list = []  # input of network
         self.action_dynamic_list = []  # action_dynamic used for inference (means before updating the action_dynamic)
         self.result_box_list = []
+        self.vid_idx_list = []
 
-        self.reset(net, train_videos, opts, args)
+        self.reset(net, domain_specific_nets, train_videos, opts, args)
 
     def __getitem__(self, index):
 
@@ -40,13 +41,22 @@ class RLDataset(data.Dataset):
         #        self.reward_list[index], self.patch_list[index], self.action_dynamic_list[index], \
         #        self.result_box_list[index]
 
-        # TODO: currently only log_probs_list and reward_list contains data
-        return self.log_probs_list[index], self.reward_list[index]
+        # TODO: currently only log_probs_list, reward_list, and vid_idx_list contains data
+        return self.log_probs_list[index], self.reward_list[index], self.vid_idx_list[index]
 
     def __len__(self):
         return len(self.log_probs_list)
 
-    def reset(self, net, train_videos, opts, args):
+    def reset(self, net, domain_specific_nets, train_videos, opts, args):
+        self.action_list = []  # a_t,l  # argmax of self.action_prob_list
+        self.action_prob_list = []  # output of network (fc6_out)
+        self.log_probs_list = []  # log probs from each self.action_prob_list member
+        self.reward_list = []  # tracking score
+        self.patch_list = []  # input of network
+        self.action_dynamic_list = []  # action_dynamic used for inference (means before updating the action_dynamic)
+        self.result_box_list = []
+        self.vid_idx_list = []
+
         print('generating reinforcement learning dataset')
         transform = ADNet_Augmentation(opts)
 
@@ -54,7 +64,7 @@ class RLDataset(data.Dataset):
         clip_idx = 0
         while True:  # for every clip (l)
 
-            num_step_history = [1]  # T_l
+            num_step_history = []  # T_l
 
             num_frame = 1  # the first frame won't be tracked..
             t = 0
@@ -92,6 +102,16 @@ class RLDataset(data.Dataset):
 
                 curr_patch = curr_patch.unsqueeze(0)  # 1 batch input [1, curr_patch.shape]
 
+                # load ADNetDomainSpecific with video index
+                if args.multidomain:
+                    vid_idx = self.env.get_current_train_vid_idx()
+                else:
+                    vid_idx = 0
+                if args.cuda:
+                    net.module.load_domain_specific(domain_specific_nets[vid_idx])
+                else:
+                    net.load_domain_specific(domain_specific_nets[vid_idx])
+
                 fc6_out, fc7_out = net.forward(curr_patch, update_action_dynamic=True)
 
                 if args.cuda:
@@ -105,6 +125,7 @@ class RLDataset(data.Dataset):
                 action_ = m.sample()  # action and action_ are same value. Only differ in the type (int and tensor)
 
                 self.log_probs_list.append(m.log_prob(action_).cpu().data.numpy())
+                self.vid_idx_list.append(vid_idx)
 
                 self.action_list.append(action)
                 # TODO: saving action_prob_list takes cuda memory
@@ -119,7 +140,7 @@ class RLDataset(data.Dataset):
                     info['finish_epoch'] = finish_epoch
 
                 # check if number of action is already too much
-                if t >= opts['num_action_step_max'] - 1:
+                if t > opts['num_action_step_max']:
                     action = opts['stop_action']
                     reward, done, finish_epoch = self.env.go_to_next_frame()
                     info['finish_epoch'] = finish_epoch
@@ -146,6 +167,7 @@ class RLDataset(data.Dataset):
             tracking_scores = np.full(tracking_scores_size, reward)  # seems no discount factor whatsoever
 
             self.reward_list.extend(tracking_scores)
+            # self.reward_list.append(tracking_scores)
 
             clip_idx += 1
 

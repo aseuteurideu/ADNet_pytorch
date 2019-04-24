@@ -6,7 +6,7 @@ from utils.overlap_ratio import overlap_ratio
 import torch.nn as nn
 import math
 import torch
-from utils.augmentations import CropRegion, CropRegion_withContext_square
+from utils.augmentations import CropRegion
 
 class TrackingPolicyLoss(nn.Module):
     def __init__(self):
@@ -15,8 +15,12 @@ class TrackingPolicyLoss(nn.Module):
     # https://github.com/pytorch/examples/blob/master/reinforcement_learning/reinforce.py#L68
     def forward(self, saved_log_probs, rewards, use_gpu=True):
         policy_loss = []
-        for log_prob, reward in zip(saved_log_probs, rewards):
-            policy_loss.append(-log_prob * reward.float())
+        # for log_prob, reward in zip(saved_log_probs, rewards):
+        for idx in range(len(saved_log_probs)):
+            if len(saved_log_probs) == 1:
+                policy_loss.append(-saved_log_probs * rewards.type(saved_log_probs.type()))
+            else:
+                policy_loss.append(-saved_log_probs[idx] * rewards[idx].float())
         policy_loss = torch.cat(policy_loss).sum()
         policy_loss = policy_loss.unsqueeze(0).requires_grad_(True)
         if use_gpu:
@@ -51,6 +55,7 @@ class TrackingEnvironment(object):
                 'frame_end': [],
                 'init_bbox': [],
                 'end_bbox': [],
+                'vid_idx': [],
             }
             # Load current training video info
             video_name = video_names[vid_idx]
@@ -82,6 +87,7 @@ class TrackingEnvironment(object):
                 clips['frame_end'].append(frameEnd)
                 clips['init_bbox'].append(vid_info['gt'][frameStart])
                 clips['end_bbox'].append(vid_info['gt'][frameEnd])
+                clips['vid_idx'].append(vid_idx)
 
             if num_train_clips > 0:  # small hack
                 self.videos.append(clips)
@@ -155,11 +161,11 @@ class TrackingEnvironment(object):
     def get_current_patch(self):
         return self.current_patch
 
+    def get_current_train_vid_idx(self):
+        return self.videos[self.vid_idx]['vid_idx'][0]
+
     def get_current_patch_unprocessed(self):
-        if self.args.transform == 'keep_aspect_ratio':
-            crop = CropRegion_withContext_square()
-        else:
-            crop = CropRegion()
+        crop = CropRegion()
         state_int = [int(x) for x in self.state]
         current_patch_unprocessed, _, _, _ = crop(self.current_img, state_int)
         return current_patch_unprocessed.astype(np.uint8)
@@ -185,9 +191,6 @@ class TrackingEnvironment(object):
             finish_epoch = self.reset()  # go to the next clip (or video)
 
             done = True  # done means one clip is finished
-
-            if finish_epoch:
-                finish_epoch = True
 
         # just go to the next frame (means new patch and new image)
         else:

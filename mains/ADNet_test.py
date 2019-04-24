@@ -80,14 +80,7 @@ if torch.cuda.is_available():
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
 
-net = adnet(opts)
-net.train()
-if args.cuda:
-    net = nn.DataParallel(net)
-    cudnn.benchmark = True
 
-if args.cuda:
-    net = net.cuda()
 
 dataset_root = os.path.join('../datasets/data', opts['test_db'])
 vid_folders = []
@@ -102,8 +95,15 @@ save_root_npy = args.save_result_npy
 
 for vid_folder in vid_folders:
     print('Loading {}...'.format(args.weight_file))
-    state_dict = torch.load(args.weight_file)
-    net.load_state_dict(state_dict)
+    opts['num_videos'] = 1
+    net, domain_nets = adnet(opts, trained_file=args.weight_file, random_initialize_domain_specific=True)
+    net.train()
+    if args.cuda:
+        net = nn.DataParallel(net)
+        cudnn.benchmark = True
+
+    if args.cuda:
+        net = net.cuda()
 
     if args.save_result_images is not None:
         args.save_result_images = os.path.join(save_root, vid_folder)
@@ -113,6 +113,12 @@ for vid_folder in vid_folders:
     args.save_result_npy = os.path.join(save_root_npy, vid_folder)
 
     vid_path = os.path.join(dataset_root, vid_folder)
+
+    # load ADNetDomainSpecific
+    if args.cuda:
+        net.module.load_domain_specific(domain_nets[0])
+    else:
+        net.load_domain_specific(domain_nets[0])
 
     bboxes, t_sum = adnet_test(net, vid_path, opts, args)
 #     all_precisions.append(precisions)

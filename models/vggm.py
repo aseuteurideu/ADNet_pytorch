@@ -62,27 +62,27 @@ class VGGM(nn.Module):
             nn.Conv2d(3, 96, (7, 7), (2, 2)),  # conv1
             nn.ReLU(),
             SpatialCrossMapLRN(5, 0.0005, 0.75, 2),
-            nn.MaxPool2d((3, 3),(2, 2),(0, 0),ceil_mode=True),
-            nn.Conv2d(96,256,(5, 5),(2, 2),(1, 1)),  # conv2
+            nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True),
+            nn.Conv2d(96, 256, (5, 5), (2, 2), (1, 1)),  # conv2
             nn.ReLU(),
             SpatialCrossMapLRN(5, 0.0005, 0.75, 2),
-            nn.MaxPool2d((3, 3),(2, 2),(0, 0),ceil_mode=True),
-            nn.Conv2d(256,512,(3, 3),(1, 1),(1, 1)),  # conv3
+            nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True),
+            nn.Conv2d(256, 512, (3, 3), (1, 1), (1, 1)),  # conv3
             nn.ReLU(),
-            nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),  # conv4
+            nn.Conv2d(512, 512, (3, 3), (1, 1), (1, 1)),  # conv4
             nn.ReLU(),
-            nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),  # conv5
+            nn.Conv2d(512, 512, (3, 3), (1, 1), (1, 1)),  # conv5
             nn.ReLU(),
-            nn.MaxPool2d((3, 3),(2, 2),(0, 0),ceil_mode=True)
+            nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True)
         )
         self.classifier = nn.Sequential(
-            nn.Linear(18432,4096),
+            nn.Linear(18432, 4096),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(4096,4096),
+            nn.Linear(4096, 4096),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(4096,num_classes)
+            nn.Linear(4096, num_classes)
         )
 
     def forward(self, x):

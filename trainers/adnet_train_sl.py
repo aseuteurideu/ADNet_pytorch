@@ -44,24 +44,39 @@ def adnet_train_sl(args, opts):
     if args.visualize:
         writer = SummaryWriter(log_dir=os.path.join('tensorboardx_log', args.save_file))
 
-    net = adnet(opts=opts)
+    train_videos = get_train_videos(opts)
+    opts['num_videos'] = len(train_videos['video_names'])
+
+    net, domain_specific_nets = adnet(opts=opts, trained_file=args.resume, multidomain=args.multidomain)
 
     if args.cuda:
         net = nn.DataParallel(net)
         cudnn.benchmark = True
 
-    if args.resume:
-        print('Resuming training, loading {}...'.format(args.resume))
-        # net.load_weights(args.resume)
-        state_dict = torch.load(args.resume)
-        net.load_state_dict(state_dict)
-
-    if args.cuda:
         net = net.cuda()
 
+    if args.cuda:
+        optimizer = optim.SGD([
+            {'params': net.module.base_network.parameters(), 'lr': 1e-4},
+            {'params': net.module.fc4_5.parameters()},
+            {'params': net.module.fc6.parameters()},
+            {'params': net.module.fc7.parameters()}],  # as action dynamic is zero, it doesn't matter
+            lr=1e-3, momentum=opts['train']['momentum'], weight_decay=opts['train']['weightDecay'])
+    else:
+        optimizer = optim.SGD([
+            {'params': net.base_network.parameters(), 'lr': 1e-4},
+            {'params': net.fc4_5.parameters()},
+            {'params': net.fc6.parameters()},
+            {'params': net.fc7.parameters()}],
+            lr=1e-3, momentum=opts['train']['momentum'], weight_decay=opts['train']['weightDecay'])
+
+    if args.resume:
+        # net.load_weights(args.resume)
+        checkpoint = torch.load(args.resume)
+
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
     net.train()
-    action_loss = 0
-    score_loss = 0
 
 
     if not args.resume:
@@ -77,6 +92,7 @@ def adnet_train_sl(args, opts):
             nn.init.normal_(net.module.fc4_5[3].weight.data)
             net.module.fc4_5[3].weight.data = net.module.fc4_5[3].weight.data * scal.expand_as(net.module.fc4_5[3].weight.data)
             net.module.fc4_5[3].bias.data.fill_(0.1)
+
             # fc 6
             nn.init.normal_(net.module.fc6.weight.data)
             net.module.fc6.weight.data = net.module.fc6.weight.data * scal.expand_as(net.module.fc6.weight.data)
@@ -104,44 +120,42 @@ def adnet_train_sl(args, opts):
             net.fc7.weight.data = net.fc7.weight.data * scal.expand_as(net.fc7.weight.data)
             net.fc7.bias.data.fill_(0)
 
-    if args.cuda:
-        optimizer = optim.SGD([
-            {'params': net.module.base_network.parameters(), 'lr': 1e-4},
-            {'params': net.module.fc4_5.parameters()},
-            {'params': net.module.fc6.parameters()},
-            {'params': net.module.fc7.parameters()}],  # as action dynamic is zero, it doesn't matter
-            lr=1e-3, momentum=opts['train']['momentum'], weight_decay=opts['train']['weightDecay'])
-    else:
-        optimizer = optim.SGD([
-            {'params': net.base_network.parameters(), 'lr': 1e-4},
-            {'params': net.fc4_5.parameters()},
-            {'params': net.fc6.parameters()},
-            {'params': net.fc7.parameters()}],
-            lr=1e-3, momentum=opts['train']['momentum'], weight_decay=opts['train']['weightDecay'])
-
     action_criterion = nn.CrossEntropyLoss()
     score_criterion = nn.CrossEntropyLoss()
 
-    train_videos = get_train_videos(opts)
-    opts['num_videos'] = len(train_videos['video_names'])
 
     print('generating Supervised Learning dataset..')
-    # dataset = SLDataset(train_videos, opts, transform=ADNet_Augmentation(opts))
-    dataset_pos, dataset_neg = initialize_pos_neg_dataset(train_videos, opts, transform=ADNet_Augmentation(opts))
+    # dataset = SLDataset(train_videos, opts, transform=
 
-    batch_iterator_pos = None
-    batch_iterator_neg = None
+    datasets_pos, datasets_neg = initialize_pos_neg_dataset(train_videos, opts, transform=ADNet_Augmentation(opts))
+    number_domain = opts['num_videos']
 
-    epoch_size_pos = len(dataset_pos) // opts['minibatch_size']
-    epoch_size_neg = len(dataset_neg) // opts['minibatch_size']
+    batch_iterators_pos = []
+    batch_iterators_neg = []
+
+    # calculating number of data
+    len_dataset_pos = 0
+    len_dataset_neg = 0
+    for dataset_pos in datasets_pos:
+        len_dataset_pos += len(dataset_pos)
+    for dataset_neg in datasets_neg:
+        len_dataset_neg += len(dataset_neg)
+
+    epoch_size_pos = len_dataset_pos // opts['minibatch_size']
+    epoch_size_neg = len_dataset_neg // opts['minibatch_size']
     epoch_size = epoch_size_pos + epoch_size_neg  # 1 epoch, how many iterations
     print("1 epoch = " + str(epoch_size) + " iterations")
 
     max_iter = opts['numEpoch'] * epoch_size
     print("maximum iteration = " + str(max_iter))
 
-    data_loader_pos = data.DataLoader(dataset_pos, opts['minibatch_size'], num_workers=args.num_workers, shuffle=True, pin_memory=True)
-    data_loader_neg = data.DataLoader(dataset_neg, opts['minibatch_size'], num_workers=args.num_workers, shuffle=True, pin_memory=True)
+    data_loaders_pos = []
+    data_loaders_neg = []
+
+    for dataset_pos in datasets_pos:
+        data_loaders_pos.append(data.DataLoader(dataset_pos, opts['minibatch_size'], num_workers=args.num_workers, shuffle=True, pin_memory=True))
+    for dataset_neg in datasets_neg:
+        data_loaders_neg.append(data.DataLoader(dataset_neg, opts['minibatch_size'], num_workers=args.num_workers, shuffle=True, pin_memory=True))
 
     epoch = args.start_epoch
     if epoch != 0 and args.start_iter == 0:
@@ -153,14 +167,34 @@ def adnet_train_sl(args, opts):
     which_dataset.extend(np.zeros(epoch_size_neg, dtype=int))
     shuffle(which_dataset)
 
+    which_domain = np.random.permutation(number_domain)
+
+    action_loss = 0
+    score_loss = 0
+
     # training loop
     for iteration in range(start_iter, max_iter):
+        if args.multidomain:
+            curr_domain = which_domain[iteration % len(which_domain)]
+        else:
+            curr_domain = 0
+        # if new epoch (not including the very first iteration)
         if (iteration != start_iter) and (iteration % epoch_size == 0):
             epoch += 1
             shuffle(which_dataset)
+            np.random.shuffle(which_domain)
 
             print('Saving state, epoch:', epoch)
-            torch.save(net.state_dict(), os.path.join(args.save_folder, args.save_file) +
+            domain_specific_nets_state_dict = []
+            for domain_specific_net in domain_specific_nets:
+                domain_specific_nets_state_dict.append(domain_specific_net.state_dict())
+
+            torch.save({
+                'epoch': epoch,
+                'adnet_state_dict': net.state_dict(),
+                'adnet_domain_specific_state_dict': domain_specific_nets,
+                'optimizer_state_dict': optimizer.state_dict(),
+            }, os.path.join(args.save_folder, args.save_file) +
                        'epoch' + repr(epoch) + '.pth')
 
             if args.visualize:
@@ -172,25 +206,36 @@ def adnet_train_sl(args, opts):
             action_loss = 0
             score_loss = 0
 
-        if iteration % epoch_size == 0:
+        # if new epoch (including the first iteration), initialize the batch iterator
+        # or just resuming where batch_iterator_pos and neg haven't been initialized
+        if iteration % epoch_size == 0 or len(batch_iterators_pos) == 0 or len(batch_iterators_neg) == 0:
             # create batch iterator
-            batch_iterator_pos = iter(data_loader_pos)
-            batch_iterator_neg = iter(data_loader_neg)
+            for data_loader_pos in data_loaders_pos:
+                batch_iterators_pos.append(iter(data_loader_pos))
+            for data_loader_neg in data_loaders_neg:
+                batch_iterators_neg.append(iter(data_loader_neg))
 
-        if not batch_iterator_pos:
-            # create batch iterator
-            batch_iterator_pos = iter(data_loader_pos)
-
-        if not batch_iterator_neg:
-            # create batch iterator
-            batch_iterator_neg = iter(data_loader_neg)
-
+        # if not batch_iterators_pos[curr_domain]:
+        #     # create batch iterator
+        #     batch_iterators_pos[curr_domain] = iter(data_loaders_pos[curr_domain])
+        #
+        # if not batch_iterators_neg[curr_domain]:
+        #     # create batch iterator
+        #     batch_iterators_neg[curr_domain] = iter(data_loaders_neg[curr_domain])
 
         # load train data
         if which_dataset[iteration % len(which_dataset)]:  # if positive
-            images, bbox, action_label, score_label = next(batch_iterator_pos)
+            try:
+                images, bbox, action_label, score_label, vid_idx = next(batch_iterators_pos[curr_domain])
+            except StopIteration:
+                batch_iterators_pos[curr_domain] = iter(data_loaders_pos[curr_domain])
+                images, bbox, action_label, score_label, vid_idx = next(batch_iterators_pos[curr_domain])
         else:
-            images, bbox, action_label, score_label = next(batch_iterator_neg)
+            try:
+                images, bbox, action_label, score_label, vid_idx = next(batch_iterators_neg[curr_domain])
+            except StopIteration:
+                batch_iterators_neg[curr_domain] = iter(data_loaders_neg[curr_domain])
+                images, bbox, action_label, score_label, vid_idx = next(batch_iterators_neg[curr_domain])
 
         # TODO: check if this requires grad is really false like in Variable
         if args.cuda:
@@ -205,8 +250,15 @@ def adnet_train_sl(args, opts):
             action_label = torch.Tensor(action_label)
             score_label = torch.Tensor(score_label)
 
-        # forward
         t0 = time.time()
+
+        # load ADNetDomainSpecific with video index
+        if args.cuda:
+            net.module.load_domain_specific(domain_specific_nets[curr_domain])
+        else:
+            net.load_domain_specific(domain_specific_nets[curr_domain])
+
+        # forward
         action_out, score_out = net(images)
 
         # backprop
@@ -219,9 +271,17 @@ def adnet_train_sl(args, opts):
         loss = action_l + score_l
         loss.backward()
         optimizer.step()
-        t1 = time.time()
+
         action_loss += action_l.item()
         score_loss += score_l.item()
+
+        # save the ADNetDomainSpecific back to their module
+        if args.cuda:
+            domain_specific_nets[curr_domain].load_weights_from_adnet(net.module)
+        else:
+            domain_specific_nets[curr_domain].load_weights_from_adnet(net)
+
+        t1 = time.time()
 
         if iteration % 10 == 0:
             print('Timer: %.4f sec.' % (t1 - t0))
@@ -242,12 +302,28 @@ def adnet_train_sl(args, opts):
 
         if iteration % 5000 == 0:
             print('Saving state, iter:', iteration)
-            torch.save(net.state_dict(), os.path.join(args.save_folder, args.save_file) +
+
+            domain_specific_nets_state_dict = []
+            for domain_specific_net in domain_specific_nets:
+                domain_specific_nets_state_dict.append(domain_specific_net.state_dict())
+
+            torch.save({
+                'epoch': epoch,
+                'adnet_state_dict': net.state_dict(),
+                'adnet_domain_specific_state_dict': domain_specific_nets,
+                'optimizer_state_dict': optimizer.state_dict(),
+            }, os.path.join(args.save_folder, args.save_file) +
                        repr(iteration) + '_epoch' + repr(epoch) +'.pth')
 
-    torch.save(net.state_dict(), os.path.join(args.save_folder, args.save_file) + '.pth')
+    # final save
+    torch.save({
+        'epoch': epoch,
+        'adnet_state_dict': net.state_dict(),
+        'adnet_domain_specific_state_dict': domain_specific_nets,
+        'optimizer_state_dict': optimizer.state_dict(),
+    }, os.path.join(args.save_folder, args.save_file) + '.pth')
 
-    return net, train_videos
+    return net, domain_specific_nets, train_videos
 
 
 

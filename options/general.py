@@ -80,7 +80,7 @@ opts = {
             [-1, 0, 0, 0], # left
             [-2, 0, 0, 0], # left x2
             [+1, 0, 0, 0], # right
-            [+2, 0, 0, 0], # rigth x2
+            [+2, 0, 0, 0], # right x2
             [0, -1, 0, 0], # up
             [0, -2, 0, 0], # up x2
             [0, +1, 0, 0], # down
@@ -92,7 +92,7 @@ opts = {
     },
 
     'num_actions' : 11,
-    'stop_action' : 9,
+    'stop_action' : 8,
     'num_show_actions' : 20,
     'num_action_step_max' : 20,
     'num_action_history' : 10,

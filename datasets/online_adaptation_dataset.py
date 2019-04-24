@@ -14,7 +14,7 @@ from utils.get_video_infos import get_video_infos
 from utils.gen_samples import gen_samples
 from utils.overlap_ratio import overlap_ratio
 from utils.gen_action_labels import gen_action_labels
-from utils.augmentations import ADNet_Augmentation_KeepAspectRatio, ADNet_Augmentation
+from utils.augmentations import ADNet_Augmentation
 
 class OnlineAdaptationDatasetStorage():
     def __init__(self, initial_frame, first_box, opts, args, positive=True):

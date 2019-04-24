@@ -2,13 +2,25 @@
 Implementation of ADNet (https://sites.google.com/view/cvpr2017-adnet) in PyTorch 0.4.1.
 
 References:
-1. ADNet Matlab code (https://github.com/hellbell/ADNet)
+1. ADNet Matlab code (https://github.com/hellbell/ADNet). From my test, published weight has distance precision ~76%
 2. ADNet IEEE transaction on Neural Networks and Learning Systems 2018 (https://ieeexplore.ieee.org/abstract/document/8306309)
 3. ADNet CVPR 2017 (http://openaccess.thecvf.com/content_cvpr_2017/papers/Yun_Action-Decision_Networks_for_CVPR_2017_paper.pdf)
 
 This implementation still cannot reproduce same performance with paper. 
-Current performance: ADNet SL 20.9% distance (20px) precision. Inputs are welcome. 
-Also currently cannot use multiple GPU (set CUDA_VISIBLE_DEVICES environment variable to select one GPU, if there are multiple GPUs in the system)
+Current performance distance (20px) precision with 1x test trial: 
+
+|SL     |SL+RL  |SL, nomd |SL+RL, nomd |
+|-------|-------|---------|------------|
+|75.3%  |67.9%  |54.9%    |54.1%       |
+
+SL: Supervised Learning. RL: Reinforcement Learning, nomd: without multi-domain training
+
+Inputs are welcome (especially RL part). Also currently cannot use multiple GPU (set CUDA_VISIBLE_DEVICES environment variable to select one GPU, if there are multiple GPUs in the system)
+
+TODO:
+* RL training debugging
+* multiple GPU
+* ALOV dataset training (to follow paper)
 
 Requirements:
 * Python 3.6
@@ -77,7 +89,7 @@ Requirements:
 ## Usage examples
 *  ADNet - train with SL & RL
     ```bash
-    python mains/ADNet.py --visualization True
+    python mains/ADNet.py --visualize True
     ```
     
 -------------------------------------------

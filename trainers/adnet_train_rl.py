@@ -22,7 +22,8 @@ from datasets.rl_dataset import RLDataset
 import torch.utils.data as data
 from tensorboardX import SummaryWriter
 
-def adnet_train_rl(net, train_videos, opts, args):
+
+def adnet_train_rl(net, domain_specific_nets, train_videos, opts, args):
     if torch.cuda.is_available():
         if args.cuda:
             torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -42,8 +43,7 @@ def adnet_train_rl(net, train_videos, opts, args):
     if args.run_supervised:  # if already run the supervised, the net variable has been processed
         if args.resume:
             print('Resuming training, loading {}...'.format(args.resume))
-            state_dict = torch.load(args.resume)
-            net.load_state_dict(state_dict)
+            net.load_weights(args.resume)
 
         if args.cuda:
             net = nn.DataParallel(net)
@@ -78,12 +78,12 @@ def adnet_train_rl(net, train_videos, opts, args):
     ###########################################################
     clip_idx_epoch = 0
     prev_net = copy.deepcopy(net)
-    dataset = RLDataset(prev_net, train_videos, opts, args)
+    dataset = RLDataset(prev_net, domain_specific_nets, train_videos, opts, args)
 
     for epoch in range(args.start_epoch, opts['numEpoch']):
         if epoch != args.start_epoch:
             prev_net = copy.deepcopy(net)  # save the not updated net for generating data
-            dataset.reset(prev_net, train_videos, opts, args)
+            dataset.reset(prev_net, domain_specific_nets, train_videos, opts, args)
 
         data_loader = data.DataLoader(dataset, opts['minibatch_size'], num_workers=args.num_workers, shuffle=True,
                                       pin_memory=True)
@@ -99,18 +99,36 @@ def adnet_train_rl(net, train_videos, opts, args):
         for iteration in range(epoch_size):
             # load train data
             # action, action_prob, log_probs, reward, patch, action_dynamic, result_box = next(batch_iterator)
-            log_probs, reward = next(batch_iterator)
+            log_probs, reward, vid_idx = next(batch_iterator)
 
             # train
             tic = time.time()
 
-            optimizer.zero_grad()
-            # loss = criterion(tracking_scores, num_frame, num_step_history, action_prob_history)
-            loss = criterion(log_probs, reward)
-            loss.backward()
-            reward_sum = reward.sum()
+            # find out the unique value in vid_idx
+            vid_idx_unique = vid_idx.unique().to('cpu')
 
-            optimizer.step()  # update
+            reward_sum = 0
+            # separate the batch with each video idx
+            for vid_id_unique in vid_idx_unique:
+                # index where vid_idx is equal to the value
+                idx_vid_idx = (vid_idx == vid_id_unique).nonzero().squeeze()
+
+                optimizer.zero_grad()
+                # loss = criterion(tracking_scores, num_frame, num_step_history, action_prob_history)
+                loss = criterion(log_probs[idx_vid_idx], reward[idx_vid_idx])
+                loss.backward(retain_graph=True)
+                reward_sum_ = reward.sum()
+                reward_sum += reward_sum_
+
+                optimizer.step()  # update
+
+                # save the ADNetDomainSpecific back to their module
+                if args.cuda:
+                    domain_specific_nets[vid_id_unique].load_weights_from_adnet(net.module)
+                else:
+                    domain_specific_nets[vid_id_unique].load_weights_from_adnet(net)
+
+            reward_sum = reward_sum/len(vid_idx_unique)
 
             toc = time.time() - tic
             print('epoch ' + str(epoch) + ' - iteration ' + str(iteration) + ' - train time: ' + str(toc) + " s")
@@ -120,8 +138,12 @@ def adnet_train_rl(net, train_videos, opts, args):
                 writer.add_scalar('data/iter_loss', loss, iteration)
 
             if iteration % 1000 == 0:
-                torch.save(net.state_dict(), os.path.join(args.save_folder, args.save_file_RL) +
-                           '_epoch' + repr(epoch) + '_iter' + repr(iteration) +'.pth')
+                torch.save({
+                    'epoch': epoch,
+                    'adnet_state_dict': net.state_dict(),
+                    'adnet_domain_specific_state_dict': domain_specific_nets,
+                    'optimizer_state_dict': optimizer.state_dict(),
+                }, os.path.join(args.save_folder, args.save_file_RL) + '_epoch' + repr(epoch) + '_iter' + repr(iteration) +'.pth')
 
             total_loss_epoch += loss
             total_reward_epoch += reward_sum
@@ -131,10 +153,19 @@ def adnet_train_rl(net, train_videos, opts, args):
             writer.add_scalar('data/epoch_reward_ave', total_reward_epoch/epoch_size, epoch)
             writer.add_scalar('data/epoch_loss', total_loss_epoch/epoch_size, epoch)
 
-        torch.save(net.state_dict(), os.path.join(args.save_folder, args.save_file_RL) +
-                   'epoch' + repr(epoch) + '.pth')
+        torch.save({
+            'epoch': epoch,
+            'adnet_state_dict': net.state_dict(),
+            'adnet_domain_specific_state_dict': domain_specific_nets,
+            'optimizer_state_dict': optimizer.state_dict(),
+        }, os.path.join(args.save_folder, args.save_file_RL) + 'epoch' + repr(epoch) + '.pth')
 
-    torch.save(net.state_dict(), os.path.join(args.save_folder, args.save_file_RL) + '.pth')
+    torch.save({
+        'epoch': epoch,
+        'adnet_state_dict': net.state_dict(),
+        'adnet_domain_specific_state_dict': domain_specific_nets,
+        'optimizer_state_dict': optimizer.state_dict(),
+    }, os.path.join(os.path.join(args.save_folder, args.save_file_RL) + '.pth'))
 
     return net
 
