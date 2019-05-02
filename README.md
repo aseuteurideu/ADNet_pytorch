@@ -2,25 +2,31 @@
 Implementation of ADNet (https://sites.google.com/view/cvpr2017-adnet) in PyTorch 0.4.1.
 
 References:
-1. ADNet Matlab code (https://github.com/hellbell/ADNet). From my test, published weight has distance precision ~76%
-2. ADNet IEEE transaction on Neural Networks and Learning Systems 2018 (https://ieeexplore.ieee.org/abstract/document/8306309)
-3. ADNet CVPR 2017 (http://openaccess.thecvf.com/content_cvpr_2017/papers/Yun_Action-Decision_Networks_for_CVPR_2017_paper.pdf)
+1. [ADNet Matlab code](https://github.com/hellbell/ADNet). From my test, published weight has distance precision ~76%
+2. [ADNet IEEE transaction on Neural Networks and Learning Systems 2018](https://ieeexplore.ieee.org/abstract/document/8306309)
+3. [ADNet CVPR 2017](http://openaccess.thecvf.com/content_cvpr_2017/papers/Yun_Action-Decision_Networks_for_CVPR_2017_paper.pdf)
 
 This implementation still cannot reproduce same performance with paper. 
-Current performance distance (20px) precision with 1x test trial: 
+Current performance distance (20px) precision with couple of test trials (each row is each trial): 
 
-|SL     |SL+RL  |SL, nomd |SL+RL, nomd |
+|[SL](https://www.dropbox.com/s/3unoop8czu13sic/ADNet_SL_.pth?dl=0) |[SL+RL](https://www.dropbox.com/s/gmio90qzcj4h20x/ADNet_RL_.pth?dl=0)  |SL, nomd |SL+RL, nomd |
 |-------|-------|---------|------------|
-|75.3%  |67.9%  |54.9%    |54.1%       |
+|75.3%  |73.3%  |54.9%    |56.5%       |
+|70.7%  |69.2%  |59.4%    |47.1%       |
+|69.0%  |71.0%  |55.3%    |49.3%       |
+|68.7%  |72.9%  |54.5%    |57.6%
+|75.5%  |68.9%  |54.5% 
+|  |69.4%
+
 
 SL: Supervised Learning. RL: Reinforcement Learning, nomd: without multi-domain training
 
 Inputs are welcome (especially RL part). Also currently cannot use multiple GPU (set CUDA_VISIBLE_DEVICES environment variable to select one GPU, if there are multiple GPUs in the system)
 
 TODO:
-* RL training debugging
+* Achieve ADNet Matlab's performance
 * multiple GPU
-* ALOV dataset training (to follow paper)
+* ALOV dataset training (to achieve paper performance)
 
 Requirements:
 * Python 3.6

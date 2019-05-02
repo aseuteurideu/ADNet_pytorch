@@ -21,7 +21,7 @@ import copy
 from datasets.rl_dataset import RLDataset
 import torch.utils.data as data
 from tensorboardX import SummaryWriter
-
+from models.ADNet import adnet
 
 def adnet_train_rl(net, domain_specific_nets, train_videos, opts, args):
     if torch.cuda.is_available():
@@ -39,18 +39,6 @@ def adnet_train_rl(net, domain_specific_nets, train_videos, opts, args):
 
     if args.visualize:
         writer = SummaryWriter(log_dir=os.path.join('tensorboardx_log', args.save_file_RL))
-
-    if args.run_supervised:  # if already run the supervised, the net variable has been processed
-        if args.resume:
-            print('Resuming training, loading {}...'.format(args.resume))
-            net.load_weights(args.resume)
-
-        if args.cuda:
-            net = nn.DataParallel(net)
-            cudnn.benchmark = True
-
-        if args.cuda:
-            net = net.cuda()
 
     if args.cuda:
         net.module.set_phase('test')

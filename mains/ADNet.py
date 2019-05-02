@@ -40,20 +40,32 @@ args = parser.parse_args()
 if args.run_supervised:
     opts['minibatch_size'] = 128
     # train with supervised learning
-    net, domain_specific_nets, train_videos = adnet_train_sl(args, opts)
+    _, _, train_videos = adnet_train_sl(args, opts)
     args.resume = os.path.join(args.save_folder, args.save_file) + '.pth'
+
+    # reinitialize the network with network from SL
+    net, domain_specific_nets = adnet(opts, trained_file=args.resume, random_initialize_domain_specific=True,
+                                      multidomain=args.multidomain)
+
+    args.start_epoch = 0
+    args.start_iter = 0
+
 else:
     assert args.resume is not None, \
         "Please put result of supervised learning or reinforcement learning with --resume (filename)"
     train_videos = get_train_videos(opts)
     opts['num_videos'] = len(train_videos['video_names'])
 
-    net, domain_specific_nets = adnet(opts, trained_file=args.resume, random_initialize_domain_specific=False, multidomain=args.multidomain)
-    if args.cuda:
-        net = nn.DataParallel(net)
-        cudnn.benchmark = True
+    if args.start_iter == 0:  # means the weight came from the SL
+        net, domain_specific_nets = adnet(opts, trained_file=args.resume, random_initialize_domain_specific=True, multidomain=args.multidomain)
+    else:  # resume the adnet
+        net, domain_specific_nets = adnet(opts, trained_file=args.resume, random_initialize_domain_specific=False, multidomain=args.multidomain)
 
-        net = net.cuda()
+if args.cuda:
+    net = nn.DataParallel(net)
+    cudnn.benchmark = True
+
+    net = net.cuda()
 
 # Reinforcement Learning part
 opts['minibatch_size'] = 32

@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
 
-parser.add_argument('--bboxes_folder', default='results_on_test_images/ADNet_RL_-0.5', type=str, help='location where bboxes files are saved')
+parser.add_argument('--bboxes_folder', default='results_on_test_images_part2/ADNet_RL_-0.5', type=str, help='location where bboxes files are saved')
 parser.add_argument('--save_plot_folder', default=None, type=str, help='save plots folder')
 parser.add_argument('--show_plot', default=False, type=str2bool, help='show plot or not')
 
